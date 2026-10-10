@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: miras-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/miras
+    username: postgres
+    password: 1234
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
