@@ -1,5 +1,7 @@
 package kg.miras.backend.catalog.service.impl;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -9,14 +11,22 @@ import kg.miras.backend.catalog.dal.entity.Author;
 import kg.miras.backend.catalog.dal.entity.Material;
 import kg.miras.backend.catalog.dal.entity.MaterialAuthor;
 import kg.miras.backend.catalog.dal.entity.MaterialAuthorId;
+import kg.miras.backend.catalog.dal.entity.MaterialTranslation;
+import kg.miras.backend.catalog.dal.enums.MaterialStatus;
 import kg.miras.backend.catalog.dal.repository.AuthorRepository;
 import kg.miras.backend.catalog.dal.repository.MaterialRepository;
 import kg.miras.backend.catalog.dto.request.MaterialDraftRequest;
+import kg.miras.backend.catalog.dto.request.MaterialTranslationDraftDto;
 import kg.miras.backend.catalog.dto.response.MaterialDraftResponse;
 import kg.miras.backend.catalog.mapper.AuthorMapper;
 import kg.miras.backend.catalog.mapper.MaterialMapper;
+import kg.miras.backend.catalog.mapper.MaterialTranslationMapper;
 import kg.miras.backend.catalog.service.MaterialService;
 import kg.miras.backend.common.exception.BadRequestException;
+import kg.miras.backend.common.exception.ConflictException;
+import kg.miras.backend.common.exception.ForbiddenOperationException;
+import kg.miras.backend.common.exception.ResourceNotFoundException;
+import kg.miras.backend.identity.service.AdminUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +40,8 @@ public class MaterialServiceImpl implements MaterialService {
     private final AuthorRepository authorRepository;
     private final MaterialMapper materialMapper;
     private final AuthorMapper authorMapper;
+    private final MaterialTranslationMapper translationMapper;
+    private final AdminUserService adminUserService;
 
     @Override
     @Transactional
@@ -47,10 +59,127 @@ public class MaterialServiceImpl implements MaterialService {
         Material material = materialMapper.toEntity(request);
         material.setCreatedById(adminUserId);
         material.setPrimaryLanguageCode(normalizeOptionalLanguage(request.primaryLanguageCode()));
+        material.setStatus(MaterialStatus.DRAFT);
         material.setAuthors(mapAuthors(material, request.authors()));
 
         Material saved = materialRepository.save(material);
         return new MaterialDraftResponse(saved.getId());
+    }
+
+    @Override
+    @Transactional
+    public MaterialDraftResponse updateDraft(UUID materialId, UUID adminUserId, MaterialDraftRequest request) {
+        if (materialId == null || adminUserId == null || request == null) {
+            throw new BadRequestException("materialId, adminUserId, and request are required");
+        }
+        validateLanguage(request.primaryLanguageCode());
+        validateTranslations(request);
+
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        if (material.getStatus() != MaterialStatus.DRAFT) {
+            throw new ConflictException("Only DRAFT materials can be edited");
+        }
+        if (!material.getCreatedById().equals(adminUserId)) {
+            throw new ForbiddenOperationException("Only the author of the draft can edit it");
+        }
+
+        material.setMaterialType(request.materialType());
+        material.setPrimaryLanguageCode(normalizeOptionalLanguage(request.primaryLanguageCode()));
+        material.setCountryId(request.countryId());
+        material.setYearOrPeriod(request.yearOrPeriod());
+        material.setCategoriesAndKeywords(request.categoriesAndKeywords());
+        material.setCreationPlace(request.creationPlace());
+        material.setAccessCondition(request.accessCondition());
+
+        material.getTranslations().clear();
+        if (request.translations() != null) {
+            for (MaterialTranslationDraftDto dto : request.translations()) {
+                MaterialTranslation translation = translationMapper.toEntity(dto);
+                translation.setMaterial(material);
+                material.getTranslations().add(translation);
+            }
+        }
+
+        material.getAuthors().clear();
+        material.getAuthors().addAll(mapAuthors(material, request.authors()));
+
+        return new MaterialDraftResponse(material.getId());
+    }
+
+    @Override
+    @Transactional
+    public void submitForReview(UUID materialId, UUID adminUserId) {
+        if (materialId == null || adminUserId == null) {
+            throw new BadRequestException("materialId and adminUserId are required");
+        }
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        if (material.getStatus() != MaterialStatus.DRAFT) {
+            throw new ConflictException("Only DRAFT materials can be submitted for review");
+        }
+        if (!material.getCreatedById().equals(adminUserId)) {
+            throw new ForbiddenOperationException("Only the author of the draft can submit it for review");
+        }
+        material.setStatus(MaterialStatus.PENDING_REVIEW);
+    }
+
+    @Override
+    @Transactional
+    public void archive(UUID materialId, UUID superAdminId) {
+        adminUserService.verifySuperAdmin(superAdminId);
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        if (material.getStatus() != MaterialStatus.PUBLISHED) {
+            throw new ConflictException("Only PUBLISHED materials can be archived");
+        }
+        material.setStatus(MaterialStatus.ARCHIVED);
+    }
+
+    @Override
+    @Transactional
+    public void unarchive(UUID materialId, UUID superAdminId) {
+        adminUserService.verifySuperAdmin(superAdminId);
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        if (material.getStatus() != MaterialStatus.ARCHIVED) {
+            throw new ConflictException("Only ARCHIVED materials can be unarchived");
+        }
+        material.setStatus(MaterialStatus.PUBLISHED);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsById(UUID id) {
+        if (id == null) {
+            return false;
+        }
+        return materialRepository.existsById(id);
+    }
+
+    @Override
+    @Transactional
+    public void publishMaterial(UUID materialId) {
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        material.setStatus(MaterialStatus.PUBLISHED);
+        material.setPublishedAt(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Override
+    @Transactional
+    public void returnToDraft(UUID materialId) {
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
+        material.setStatus(MaterialStatus.DRAFT);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID getCreatedByIdOrThrow(UUID materialId) {
+        return materialRepository.findById(materialId)
+                .map(Material::getCreatedById)
+                .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
     }
 
     private Set<MaterialAuthor> mapAuthors(Material material, List<String> authorNames) {
