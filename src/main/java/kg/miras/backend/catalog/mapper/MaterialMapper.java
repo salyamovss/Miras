@@ -17,6 +17,10 @@ public interface MaterialMapper {
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "authors", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "publishedAt", ignore = true)
+    @Mapping(target = "version", ignore = true)
+    @Mapping(target = "countryId", source = "countryId")
     Material toEntity(MaterialDraftRequest source);
 
     @AfterMapping
