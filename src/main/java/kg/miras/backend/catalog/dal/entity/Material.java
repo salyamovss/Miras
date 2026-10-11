@@ -10,11 +10,13 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 import kg.miras.backend.catalog.dal.enums.MaterialAccessCondition;
+import kg.miras.backend.catalog.dal.enums.MaterialStatus;
 import kg.miras.backend.catalog.dal.enums.MaterialType;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -39,8 +41,8 @@ public class Material {
     @Column(name = "primary_language_code", length = 2)
     private String primaryLanguageCode;
 
-    @Column(length = 120)
-    private String country;
+    @Column(name = "country_id")
+    private UUID countryId;
 
     @Column(name = "year_or_period", length = 120)
     private String yearOrPeriod;
@@ -55,6 +57,13 @@ public class Material {
     @Column(name = "access_condition", length = 32)
     private MaterialAccessCondition accessCondition;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private MaterialStatus status = MaterialStatus.DRAFT;
+
+    @Column(name = "published_at")
+    private OffsetDateTime publishedAt;
+
     @Column(name = "created_by", nullable = false)
     private UUID createdById;
 
@@ -65,6 +74,9 @@ public class Material {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @Version
+    private Long version;
 
     @OneToMany(mappedBy = "material", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<MaterialTranslation> translations = new LinkedHashSet<>();

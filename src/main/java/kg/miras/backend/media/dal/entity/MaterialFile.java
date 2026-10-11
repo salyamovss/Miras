@@ -2,12 +2,15 @@ package kg.miras.backend.media.dal.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import kg.miras.backend.media.dal.enums.FileRole;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -26,7 +29,7 @@ public class MaterialFile {
     @Column(name = "material_id", nullable = false)
     private UUID materialId;
 
-    @Column(name = "language_code", nullable = false, length = 2)
+    @Column(name = "language_code", length = 2)
     private String languageCode;
 
     @Column(name = "original_filename", nullable = false, length = 500)
@@ -46,6 +49,10 @@ public class MaterialFile {
 
     @Column(name = "uploaded_by", nullable = false)
     private UUID uploadedById;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "file_role", nullable = false, length = 16)
+    private FileRole fileRole = FileRole.MAIN;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
