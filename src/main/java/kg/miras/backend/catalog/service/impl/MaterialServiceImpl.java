@@ -1,5 +1,6 @@
 package kg.miras.backend.catalog.service.impl;
 
+import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.LinkedHashSet;
@@ -42,6 +43,7 @@ public class MaterialServiceImpl implements MaterialService {
     private final AuthorMapper authorMapper;
     private final MaterialTranslationMapper translationMapper;
     private final AdminUserService adminUserService;
+    private final EntityManager entityManager;
 
     @Override
     @Transactional
@@ -60,7 +62,9 @@ public class MaterialServiceImpl implements MaterialService {
         material.setCreatedById(adminUserId);
         material.setPrimaryLanguageCode(normalizeOptionalLanguage(request.primaryLanguageCode()));
         material.setStatus(MaterialStatus.DRAFT);
-        material.setAuthors(mapAuthors(material, request.authors()));
+        // Add into the Lombok-initialized Set so Hibernate replaces it with a
+        // PersistentSet on save (needed for orphanRemoval on later updates).
+        material.getAuthors().addAll(mapAuthors(material, request.authors()));
 
         Material saved = materialRepository.save(material);
         return new MaterialDraftResponse(saved.getId());
@@ -84,6 +88,12 @@ public class MaterialServiceImpl implements MaterialService {
             throw new ForbiddenOperationException("Only the author of the draft can edit it");
         }
 
+        // Flush pending inserts from a prior save in the same transaction and
+        // then re-fetch so the collections are proper PersistentSets that
+        // honor orphanRemoval on clear().
+        entityManager.flush();
+        entityManager.refresh(material);
+
         material.setMaterialType(request.materialType());
         material.setPrimaryLanguageCode(normalizeOptionalLanguage(request.primaryLanguageCode()));
         material.setCountryId(request.countryId());
@@ -93,6 +103,11 @@ public class MaterialServiceImpl implements MaterialService {
         material.setAccessCondition(request.accessCondition());
 
         material.getTranslations().clear();
+        material.getAuthors().clear();
+        // Force the DELETEs to run before we add replacements with the same
+        // (material_id, display_order) and (material_id, language_code) keys.
+        entityManager.flush();
+
         if (request.translations() != null) {
             for (MaterialTranslationDraftDto dto : request.translations()) {
                 MaterialTranslation translation = translationMapper.toEntity(dto);
@@ -101,7 +116,6 @@ public class MaterialServiceImpl implements MaterialService {
             }
         }
 
-        material.getAuthors().clear();
         material.getAuthors().addAll(mapAuthors(material, request.authors()));
 
         return new MaterialDraftResponse(material.getId());
